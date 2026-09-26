@@ -127,5 +127,21 @@
              3)
         "'session' has three records")))
 
+(deftest lazy-and-reconnect
+  (testing "lazy connection"
+    (let ((store (make-redis-store :port 6389)))
+      (ok (typep store 'redis-store) "make-redis-store returns a redis-store without connecting")
+      (ok (signals (redis-connection store) 'error) "connection is attempted lazily on access")))
+
+  (testing "reconnect on closed connection"
+    (let ((store (make-redis-store :namespace *namespace*)))
+      (let ((conn1 (redis-connection store)))
+        (ok (redis::connection-open-p conn1) "initial connection is open")
+        (redis:close-connection conn1)
+        (ok (null (redis::connection-open-p conn1)) "connection is closed")
+        (let ((conn2 (redis-connection store)))
+          (ok (redis::connection-open-p conn2) "re-opens connection when accessed")
+          (redis:close-connection conn2))))))
+
 (teardown
   (redis:close-connection *connection*))
