@@ -15,6 +15,7 @@
                 :utf-8-bytes-to-string)
   (:export :redis-store
            :make-redis-store
+           :redis-connection
            :fetch-session
            :store-session
            :remove-session))
@@ -43,19 +44,18 @@
   connection)
 
 (defun make-redis-store (&rest args &key (host "127.0.0.1") (port 6379) auth connection namespace expires serializer deserializer)
-  (declare (ignore namespace expires serializer deserializer))
-  (if connection
-      (setf (getf args :host) (redis::conn-host connection)
-            (getf args :port) (redis::conn-port connection)
-            (getf args :auth) (redis::conn-auth connection))
-      (setf (getf args :connection)
-            (open-connection :host host :port port :auth auth)))
+  (declare (ignore host port auth namespace expires serializer deserializer))
+  (when connection
+    (setf (getf args :host) (redis::conn-host connection)
+          (getf args :port) (redis::conn-port connection)
+          (getf args :auth) (redis::conn-auth connection)))
   (apply #'%make-redis-store args))
 
 (defun redis-connection (store)
   (check-type store redis-store)
   (with-slots (host port auth connection) store
-    (unless (redis::connection-open-p connection)
+    (unless (and connection
+                 (ignore-errors (redis::connection-open-p connection)))
       (setf connection
             (open-connection :host host :port port :auth auth)))
     connection))
