@@ -41,7 +41,7 @@
                   (unmarshal (safe-read-from-string
                               (utf-8-bytes-to-string (base64-string-to-usb8-array data))))))
 
-  (%connection nil))
+  connection)
 
 (defun make-redis-store (&rest args &key (host "127.0.0.1") (port 6379) auth connection namespace expires serializer deserializer)
   (declare (ignore host port auth namespace expires serializer deserializer))
@@ -58,14 +58,7 @@
                  (ignore-errors (redis::connection-open-p connection)))
       (setf connection
             (open-connection :host host :port port :auth auth)))
-    %connection))
-
-(defun redis-store-connection (store)
-  (redis-connection store))
-
-(defun (setf redis-store-connection) (connection store)
-  (check-type store redis-store)
-  (setf (redis-store-%connection store) connection))
+    connection))
 
 (defmacro with-connection (store &body body)
   `(let ((redis::*connection* (redis-connection ,store)))
