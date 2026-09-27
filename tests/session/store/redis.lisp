@@ -5,14 +5,14 @@
         :lack/session/store/redis
         :rove)
   (:import-from :lack/session/store/redis
-                :redis-store-connection))
+                :redis-connection))
 (in-package :lack/tests/session/store/redis)
 
 (defvar *namespace* "session_test")
 (defvar *connection*)
 
 (setup
-  (setf *connection* (redis-store-connection (make-redis-store)))
+  (setf *connection* (redis-connection (make-redis-store)))
 
   (let ((redis::*connection* *connection*))
     (let ((keys (red:keys (format nil "~A:*" *namespace*))))
