@@ -16,6 +16,7 @@
   (:export :redis-store
            :make-redis-store
            :redis-connection
+           :disconnect-store
            :fetch-session
            :store-session
            :remove-session))
@@ -40,29 +41,46 @@
   (deserializer (lambda (data)
                   (unmarshal (safe-read-from-string
                               (utf-8-bytes-to-string (base64-string-to-usb8-array data))))))
-
+  (lock (bordeaux-threads-2:make-lock :name "redis session store lock"))
   connection)
 
-(defun make-redis-store (&rest args &key (host "127.0.0.1") (port 6379) auth connection namespace expires serializer deserializer)
-  (declare (ignore host port auth namespace expires serializer deserializer))
+(defun make-redis-store (&rest args &key (host "127.0.0.1") (port 6379) auth connection namespace expires serializer deserializer lock)
+  (declare (ignore host port auth namespace expires serializer deserializer lock))
   (when connection
     (setf (getf args :host) (redis::conn-host connection)
           (getf args :port) (redis::conn-port connection)
           (getf args :auth) (redis::conn-auth connection)))
   (apply #'%make-redis-store args))
 
+(defun disconnect-store (store)
+  "Closes and resets the connection on STORE if present."
+  (check-type store redis-store)
+  (with-slots (connection) store
+    (when connection
+      (ignore-errors (redis:close-connection connection))
+      (setf connection nil))))
+
 (defun redis-connection (store)
   (check-type store redis-store)
   (with-slots (host port auth connection) store
     (unless (and connection
                  (ignore-errors (redis::connection-open-p connection)))
+      (disconnect-store store)
       (setf connection
             (open-connection :host host :port port :auth auth)))
     connection))
 
 (defmacro with-connection (store &body body)
-  `(let ((redis::*connection* (redis-connection ,store)))
-     ,@body))
+  (let ((s (gensym "STORE")))
+    `(let ((,s ,store))
+       (bordeaux-threads-2:with-lock-held ((redis-store-lock ,s))
+         (flet ((run ()
+                  (let ((redis::*connection* (redis-connection ,s)))
+                    ,@body)))
+           (handler-case (run)
+             (error ()
+               (disconnect-store ,s)
+               (run))))))))
 
 (defmethod fetch-session ((store redis-store) sid)
   (let ((data (with-connection store

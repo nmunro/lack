@@ -3,6 +3,7 @@
   :author "Eitaro Fukamachi"
   :license "MIT"
   :depends-on ("lack-middleware-session"
+               "bordeaux-threads"
                "cl-redis"
                "marshal"
                "cl-base64"

@@ -5,7 +5,8 @@
         :lack/session/store/redis
         :rove)
   (:import-from :lack/session/store/redis
-                :redis-connection))
+                :redis-connection
+                :disconnect-store))
 (in-package :lack/tests/session/store/redis)
 
 (defvar *namespace* "session_test")
@@ -141,7 +142,42 @@
         (ok (null (redis::connection-open-p conn1)) "connection is closed")
         (let ((conn2 (redis-connection store)))
           (ok (redis::connection-open-p conn2) "re-opens connection when accessed")
-          (redis:close-connection conn2))))))
+          (redis:close-connection conn2)))))
+
+  (testing "auto-reconnect on dropped connection during store/fetch"
+    (let ((store (make-redis-store :namespace *namespace*)))
+      (store-session store "drop-key" '(("status" . "saved")))
+      (disconnect-store store)
+      ;; fetch-session should transparently reconnect and fetch the session
+      (let ((val (fetch-session store "drop-key")))
+        (ok (equal val '(("status" . "saved"))) "transparently reconnects and fetches session"))))
+
+  (testing "thread-safe concurrent access"
+    (let ((store (make-redis-store :namespace *namespace*))
+          (errors nil)
+          (threads nil)
+          (err-lock (bordeaux-threads-2:make-lock :name "test-err-lock")))
+      (dotimes (i 6)
+        (let ((idx i))
+          (push (bordeaux-threads-2:make-thread
+                 (lambda ()
+                   (handler-case
+                       (dotimes (j 10)
+                         (let ((sid (format nil "thread-~D-session-~D" idx j))
+                               (data `(("user" . ,(format nil "user-~D" idx))
+                                       ("counter" . ,j))))
+                           (store-session store sid data)
+                           (let ((fetched (fetch-session store sid)))
+                             (unless (equal fetched data)
+                               (error "Fetched data mismatch: expected ~S got ~S" data fetched)))))
+                     (error (e)
+                       (bordeaux-threads-2:with-lock-held (err-lock)
+                         (push (cons idx e) errors)))))
+                 :name (format nil "test-worker-~D" i))
+                threads)))
+      (dolist (th threads)
+        (bordeaux-threads-2:join-thread th))
+      (ok (null errors) "concurrent access across threads completed without errors"))))
 
 (teardown
   (redis:close-connection *connection*))
